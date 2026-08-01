@@ -12,6 +12,7 @@ jobs:
   snapshot:
     name: Deploy Snapshot
     runs-on: ubuntu-latest
+    if: github.repository == 'bowerbird-java/bowerbird' && vars.SNAPSHOTS_ENABLED == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
