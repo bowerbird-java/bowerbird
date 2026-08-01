@@ -53,3 +53,28 @@ jobs:
           name: test-reports-jdk${{ matrix.java }}
           path: '**/target/surefire-reports/'
           retention-days: 7
+
+  integration:
+    name: Integration Tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install to local repo
+        run: mvn clean install --batch-mode --no-transfer-progress -DskipTests
+
+      - name: Run integration tests
+        run: >
+          mvn verify --batch-mode --no-transfer-progress
+          -pl bowerbird-maven-plugin
+          -Prun-its
+          -Dinvoker.streamLogsOnFailures=true

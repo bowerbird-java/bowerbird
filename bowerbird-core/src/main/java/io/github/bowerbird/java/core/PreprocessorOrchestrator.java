@@ -82,8 +82,10 @@ public final class PreprocessorOrchestrator {
         errorReporter.reportAll(groupDiagnostics);
         errorReporter.reportAll(orphanDiagnostics);
 
-        // if strict mode and errors exist, bail before rewriting
-        if (errorReporter.hasErrors()) {
+        // if validation found issues, copy file unchanged — attempting to rewrite
+        // a file with invalid annotation structure could leave dangling references
+        boolean hasValidationIssues = !groupDiagnostics.isEmpty() || !orphanDiagnostics.isEmpty();
+        if (hasValidationIssues) {
             copyFile(source, output);
             var allDiagnostics = new ArrayList<>(groupDiagnostics);
             allDiagnostics.addAll(orphanDiagnostics);
