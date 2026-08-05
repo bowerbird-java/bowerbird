@@ -4,13 +4,13 @@ package io.github.bowerbird.java.core.expression;
  * AST node for a boolean condition expression.
  *
  * <p>This sealed hierarchy models the expression grammar:</p>
- * <pre>
+ * <pre>{@code
  * expression  ::= orExpr
  * orExpr      ::= andExpr ( '||' andExpr )*
  * andExpr     ::= unaryExpr ( '&&' unaryExpr )*
  * unaryExpr   ::= '!' unaryExpr | primary
  * primary     ::= IDENTIFIER | '(' expression ')'
- * </pre>
+ * }</pre>
  */
 public sealed interface ExprNode permits ExprNode.And, ExprNode.Or, ExprNode.Not, ExprNode.Identifier {
 
