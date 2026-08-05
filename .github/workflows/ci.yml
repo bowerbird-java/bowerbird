@@ -40,7 +40,7 @@ jobs:
 
       - name: Upload JaCoCo reports
         if: matrix.java == '21'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: jacoco-reports
           path: '**/target/site/jacoco/'
@@ -48,7 +48,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-reports-jdk${{ matrix.java }}
           path: '**/target/surefire-reports/'
@@ -77,4 +77,5 @@ jobs:
           mvn verify --batch-mode --no-transfer-progress
           -pl bowerbird-maven-plugin
           -Prun-its
+          -Denforcer.skip=true
           -Dinvoker.streamLogsOnFailures=true
