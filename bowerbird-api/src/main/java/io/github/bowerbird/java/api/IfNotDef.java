@@ -14,7 +14,7 @@ import java.lang.annotation.Target;
  * <p>When used with a {@code group} key, this annotation marks the <em>head</em> of a
  * conditional group, just like {@link IfDef}.</p>
  *
- * <h3>Example</h3>
+ * <p><b>Example</b></p>
  * <pre>{@code
  * @IfNotDef("LEGACY_MODE")
  * public void enforceModernAuth(HttpRequest request) { }

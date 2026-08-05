@@ -15,7 +15,7 @@ import java.lang.annotation.Target;
  * <p>The {@code group} key is <em>required</em> and must reference a group whose head
  * ({@link IfDef} or {@link IfNotDef}) is declared in the same enclosing type.</p>
  *
- * <h3>Example</h3>
+ * <p><b>Example</b></p>
  * <pre>{@code
  * @IfDef(value = "DEBUG", group = "logging")
  * public Logger createLogger() { return Logger.getLogger(Level.TRACE); }

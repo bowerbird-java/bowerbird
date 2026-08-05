@@ -17,13 +17,13 @@ import java.lang.annotation.Target;
  * may contain zero or more {@link ElseIfDef} branches and at most one {@link ElseDef}
  * fallback.</p>
  *
- * <h3>Example — standalone</h3>
+ * <p><b>Example — standalone</b></p>
  * <pre>{@code
  * @IfDef("DEBUG")
  * public class DiagnosticsController { }
  * }</pre>
  *
- * <h3>Example — grouped</h3>
+ * <p><b>Example — grouped</b></p>
  * <pre>{@code
  * @IfDef(value = "USE_REDIS", group = "cache-factory")
  * public Cache createCache() { return new RedisCache(); }
