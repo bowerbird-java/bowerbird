@@ -478,7 +478,7 @@ Examples: `"DEBUG"`, `"!PRODUCTION"`, `"FEATURE_A && !LEGACY"`,
 
 ```xml
 <plugin>
-    <groupId>io.github.bowerbird.java</groupId>
+    <groupId>io.github.bowerbird-java</groupId>
     <artifactId>bowerbird-maven-plugin</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <executions>
@@ -501,7 +501,7 @@ Examples: `"DEBUG"`, `"!PRODUCTION"`, `"FEATURE_A && !LEGACY"`,
 
 ```xml
 <dependency>
-    <groupId>io.github.bowerbird.java</groupId>
+    <groupId>io.github.bowerbird-java</groupId>
     <artifactId>bowerbird-api</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <scope>provided</scope>
