@@ -1,5 +1,7 @@
 package io.github.bowerbird.java.core;
 
+import io.github.bowerbird.java.core.cache.CacheEntry;
+import io.github.bowerbird.java.core.cache.IncrementalCache;
 import io.github.bowerbird.java.core.diagnostic.Diagnostic;
 import io.github.bowerbird.java.core.diagnostic.DiagnosticCode;
 import io.github.bowerbird.java.core.diagnostic.ErrorReporter;
@@ -14,10 +16,7 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -29,9 +28,14 @@ import java.util.stream.Stream;
  *
  * <p>This is the main entry point for the core engine. It coordinates the source parser,
  * group validator, expression evaluator, source rewriter, and import cleaner.</p>
+ *
+ * <p>Supports optional incremental caching: when a cache directory is provided, unchanged
+ * files are skipped on subsequent runs. A flag configuration change invalidates the entire
+ * cache.</p>
  */
 public final class PreprocessorOrchestrator {
 
+    private final Set<String> activeFlags;
     private final ExpressionEvaluator evaluator;
     private final SourceParser parser;
     private final GroupValidator groupValidator;
@@ -39,6 +43,7 @@ public final class PreprocessorOrchestrator {
     private final ImportCleaner importCleaner;
     private final ErrorReporter errorReporter;
     private final Charset charset;
+    private final Path cacheDir;
 
     /**
      * Creates an orchestrator with the given configuration.
@@ -48,13 +53,28 @@ public final class PreprocessorOrchestrator {
      * @param charset       the source file encoding
      */
     public PreprocessorOrchestrator(Set<String> activeFlags, ErrorReporter errorReporter, Charset charset) {
-        this.evaluator = new ExpressionEvaluator(Objects.requireNonNull(activeFlags, "activeFlags must not be null"));
+        this(activeFlags, errorReporter, charset, null);
+    }
+
+    /**
+     * Creates an orchestrator with incremental caching support.
+     *
+     * @param activeFlags   the resolved set of active feature flags
+     * @param errorReporter the error reporter (strict or lenient)
+     * @param charset       the source file encoding
+     * @param cacheDir      the directory for incremental cache storage, or {@code null} to disable caching
+     */
+    public PreprocessorOrchestrator(Set<String> activeFlags, ErrorReporter errorReporter, Charset charset, Path cacheDir) {
+        Objects.requireNonNull(activeFlags, "activeFlags must not be null");
+        this.activeFlags = Set.copyOf(activeFlags);
+        this.evaluator = new ExpressionEvaluator(activeFlags);
         this.parser = new SourceParser();
         this.groupValidator = new GroupValidator();
         this.rewriter = new SourceRewriter(evaluator);
         this.importCleaner = new ImportCleaner();
         this.errorReporter = Objects.requireNonNull(errorReporter, "errorReporter must not be null");
         this.charset = Objects.requireNonNull(charset, "charset must not be null");
+        this.cacheDir = cacheDir;
     }
 
     /**
@@ -82,8 +102,7 @@ public final class PreprocessorOrchestrator {
         errorReporter.reportAll(groupDiagnostics);
         errorReporter.reportAll(orphanDiagnostics);
 
-        // if validation found issues, copy file unchanged — attempting to rewrite
-        // a file with invalid annotation structure could leave dangling references
+        // if validation found issues, copy file unchanged
         boolean hasValidationIssues = !groupDiagnostics.isEmpty() || !orphanDiagnostics.isEmpty();
         if (hasValidationIssues) {
             copyFile(source, output);
@@ -119,6 +138,9 @@ public final class PreprocessorOrchestrator {
     /**
      * Processes all {@code .java} files under the source root using virtual threads.
      *
+     * <p>When a cache directory is configured, unchanged files are skipped. A flag
+     * configuration change invalidates the entire cache.</p>
+     *
      * @param sourceRoot the input source root directory
      * @param outputRoot the output directory for preprocessed sources
      * @return the aggregated directory result
@@ -126,6 +148,7 @@ public final class PreprocessorOrchestrator {
     public DirectoryResult processDirectory(Path sourceRoot, Path outputRoot) {
         var startTime = System.currentTimeMillis();
         var processedCount = new AtomicInteger();
+        var skippedCount = new AtomicInteger();
         var excludedCount = new AtomicInteger();
         var removedElementCount = new AtomicLong();
         var allDiagnostics = new java.util.concurrent.ConcurrentLinkedQueue<Diagnostic>();
@@ -138,14 +161,42 @@ public final class PreprocessorOrchestrator {
                     DiagnosticCode.BWB_012, Severity.ERROR,
                     "Failed to scan source directory %s: %s".formatted(sourceRoot, e.getMessage())
             ));
-            return new DirectoryResult(0, 0, 0, errorReporter.getDiagnostics(),
+            return new DirectoryResult(0, 0, 0, 0, errorReporter.getDiagnostics(),
                     System.currentTimeMillis() - startTime);
         }
+
+        // build set of current relative paths for stale entry detection
+        var currentRelativePaths = new HashSet<String>();
+        for (var file : javaFiles) {
+            currentRelativePaths.add(sourceRoot.relativize(file).toString());
+        }
+
+        // load incremental cache (if configured)
+        IncrementalCache cache = null;
+        if (cacheDir != null) {
+            cache = new IncrementalCache(cacheDir, activeFlags).load();
+        }
+
+        final IncrementalCache effectiveCache = cache;
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var futures = javaFiles.stream().map(sourceFile -> executor.submit(() -> {
                 var relativePath = sourceRoot.relativize(sourceFile);
+                var relativePathStr = relativePath.toString();
                 var outputFile = outputRoot.resolve(relativePath);
+
+                // check cache — skip if unchanged
+                if (effectiveCache != null && !effectiveCache.needsProcessing(relativePathStr, sourceFile)) {
+                    // ensure output exists (may have been deleted by mvn clean on target/)
+                    if (!effectiveCache.getEntry(relativePathStr).map(CacheEntry::excluded).orElse(false)
+                            && !Files.exists(outputFile)) {
+                        // output was cleaned — need to reprocess
+                    } else {
+                        skippedCount.incrementAndGet();
+                        return;
+                    }
+                }
+
                 var result = processFile(sourceFile, outputFile);
 
                 processedCount.incrementAndGet();
@@ -154,6 +205,16 @@ public final class PreprocessorOrchestrator {
                 }
                 removedElementCount.addAndGet(result.removedElements());
                 allDiagnostics.addAll(result.diagnostics());
+
+                // update cache
+                if (effectiveCache != null) {
+                    try {
+                        var sourceHash = IncrementalCache.computeSourceHash(sourceFile);
+                        effectiveCache.putEntry(new CacheEntry(relativePathStr, sourceHash, result.excluded()));
+                    } catch (IOException e) {
+                        // cache update failure is non-fatal — file was still processed
+                    }
+                }
             })).toList();
 
             // wait for all to complete
@@ -169,9 +230,23 @@ public final class PreprocessorOrchestrator {
             }
         }
 
+        // cleanup stale entries and save cache
+        if (cache != null) {
+            var staleEntries = cache.cleanupStaleEntries(currentRelativePaths, outputRoot);
+            try {
+                cache.save();
+            } catch (IOException e) {
+                errorReporter.report(Diagnostic.global(
+                        DiagnosticCode.BWB_013, Severity.WARNING,
+                        "Failed to save incremental cache: %s".formatted(e.getMessage())
+                ));
+            }
+        }
+
         var elapsed = System.currentTimeMillis() - startTime;
         return new DirectoryResult(
                 processedCount.get(),
+                skippedCount.get(),
                 excludedCount.get(),
                 removedElementCount.get(),
                 errorReporter.getDiagnostics(),
@@ -221,13 +296,15 @@ public final class PreprocessorOrchestrator {
     /**
      * Result of processing an entire directory.
      *
-     * @param processedFiles       total files processed
+     * @param processedFiles       total files actually processed
+     * @param skippedFiles         files skipped (unchanged, from cache)
      * @param excludedFiles        files wholly excluded
      * @param totalRemovedElements total elements removed across all files
      * @param diagnostics          all diagnostics
      * @param durationMs           wall-clock duration in milliseconds
      */
-    public record DirectoryResult(int processedFiles, int excludedFiles, long totalRemovedElements,
-                                  List<Diagnostic> diagnostics, long durationMs) {
+    public record DirectoryResult(int processedFiles, int skippedFiles, int excludedFiles,
+                                  long totalRemovedElements, List<Diagnostic> diagnostics,
+                                  long durationMs) {
     }
 }

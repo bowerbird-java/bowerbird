@@ -3,7 +3,10 @@ package io.github.bowerbird.java.maven;
 import io.github.bowerbird.java.core.PreprocessorOrchestrator;
 import io.github.bowerbird.java.core.diagnostic.ErrorMode;
 import io.github.bowerbird.java.core.diagnostic.ErrorReporter;
+import io.github.bowerbird.java.core.diagnostic.Severity;
+import io.github.bowerbird.java.core.flag.FlagDefinition;
 import io.github.bowerbird.java.core.flag.FlagResolver;
+import io.github.bowerbird.java.core.flag.FlagSource;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -15,6 +18,7 @@ import org.apache.maven.project.MavenProject;
 import java.io.File;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,6 +64,10 @@ public class PreprocessMojo extends AbstractMojo {
     @Parameter(defaultValue = "strict")
     private String errorMode;
 
+    /** enable incremental preprocessing cache. */
+    @Parameter(defaultValue = "true")
+    private boolean incremental;
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         if (!sourceDirectory.exists()) {
@@ -82,8 +90,13 @@ public class PreprocessMojo extends AbstractMojo {
 
         getLog().info("Bowerbird preprocessing with active flags: " + activeFlags);
 
+        // resolve cache directory
+        var cacheDir = incremental
+                ? outputDirectory.toPath().resolveSibling("bowerbird-cache")
+                : null;
+
         // run the preprocessor
-        var orchestrator = new PreprocessorOrchestrator(activeFlags, errorReporter, charset);
+        var orchestrator = new PreprocessorOrchestrator(activeFlags, errorReporter, charset, cacheDir);
         var result = orchestrator.processDirectory(sourceDirectory.toPath(), outputDirectory.toPath());
 
         // log diagnostics
@@ -95,8 +108,8 @@ public class PreprocessMojo extends AbstractMojo {
             }
         }
 
-        getLog().info("Bowerbird processed %d files (%d excluded, %d elements removed) in %dms"
-                .formatted(result.processedFiles(), result.excludedFiles(),
+        getLog().info("Bowerbird processed %d files (%d skipped, %d excluded, %d elements removed) in %dms"
+                .formatted(result.processedFiles(), result.skippedFiles(), result.excludedFiles(),
                         result.totalRemovedElements(), result.durationMs()));
 
         // replace source root
